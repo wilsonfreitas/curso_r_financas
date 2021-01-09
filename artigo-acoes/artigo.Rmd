@@ -1,0 +1,213 @@
+---
+title: "Diversificação nos investimentos é o último almoço grátis"
+author: "Wilson Freitas"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+[quantmod]: http://www.quantmod.com/
+[rbcb]: https://github.com/wilsonfreitas/rbcb
+[quantmod]: https://cran.r-project.org/package=quantmod
+[GetTDData]: https://cran.r-project.org/package=GetTDData
+[PerformanceAnalytics]: https://cran.r-project.org/package=PerformanceAnalytics
+
+O R oference um ambiente muito rico para análise e processamento de dados financeiros.
+Há diversos pacotes para acesso a dados do mercado financeiro e sem custos.
+Pacotes como [quantmod], [rbcb] e [GetTDData] são exemplos de pacotes disponíveis para instalação, sem custo e que dão acesso a uma extensa base de dados econômicos e financeiros totalmente integrados ao ambiente do R.
+
+Neste post vamos utilizar o pacote [quantmod] para obter algumas séries temporais de preços de ativos financeiros e fazer uma avaliação do desempenho destes ativos.
+A biblioteca [PerformanceAnalytics] possui diversas funções para avaliação de desempenho de ativos, muito útil na comparação de fundos de investimentos e avaliação do desempenho dos fundos contra seus *benchmarks*.
+Esta biblioteca traz diversos gráficos e tabelas que enriquecem essa análise e alguns deles serão apresentados ao longo deste texto.
+O objetivo aqui é selecionar alguns ativos mais conhecidos do grande público e avaliar o desempenho de cada um destes ativos utilizando as funções da biblioteca [PerformanceAnalytics].
+
+Começemos carregando os pacotes que serão utilizados.
+
+```{r}
+library(tidyverse)
+library(PerformanceAnalytics)
+library(xts)
+library(quantmod)
+```
+
+Vamos carregar os dados dos seguintes ativos:
+
+- Petrobrás PN (PETR4.SA)
+- VALE (VALE3.SA)
+- Lojas Renner (LREN3.SA)
+- Ambev (ABEV3.SA)
+- ETF BOVA11 (BOVA11.SA)
+
+[JR]: https://rviews.rstudio.com/2017/11/09/introduction-to-visualizing-asset-returns/
+
+Para isso vamos usar uma artifício utilizado no [blog do RStudio][JR] onde um vetor com os símbolos dos ativos é definido e em seguida, com um conjuto de operações com *pipes* as séries são colocadas juntas em um único objeto `xts`.
+
+```{r getSymbols, message=FALSE, warning=FALSE, cache=TRUE}
+symbols <- c("BOVA11.SA", "ABEV3.SA", "LREN3.SA", "PETR4.SA", "VALE3.SA")
+
+prices <- getSymbols(symbols,
+                     from = "2010-01-01",
+                     to = "2020-01-01",
+                     auto.assign = TRUE) %>%
+  map(~Ad(get(.))) %>%
+  reduce(merge) %>%
+  `colnames<-`(symbols)
+```
+
+Este é um código *tricky* que merece ser estudado com calma, sugiro fortemente a leitura do [blog do RStudio][JR].
+Por ora vamos nos ater a seu resultado, o objeto `prices`.
+
+```{r}
+head(prices)
+```
+
+Neste objeto temos todos os preços diário dos ativos entre os anos de 2010 e 2019, ou seja, uns 10 anos de dados.
+O objeto `prices` possui séries de preços, entretanto, as análises de desempenho devem ser feitas com as séries de **retornos** dos ativos.
+Aqui vamos utilizar a função `Return.calculate` do pacote [PerformanceAnalytics] para calcular os log-retornos.
+
+```{r}
+returns <- Return.calculate(prices, method = "log")
+```
+
+Calculados os retornos, vamos observá-los com a função `chart.TimeSeries`, também do [PerformanceAnalytics].
+É muito importante vizualizar os dados e *ver* como eles se comportam.
+Isso faz parte da análise, ajuda na compreensão e principalmente no processo de formulação de perguntas.
+Lembre-se, _as perguntas no processo de análise dados são mais importantes do que as respostas_.
+
+```{r}
+returns["2019"] %>%
+  chart.TimeSeries(plot.engine = "ggplot2", main = "Retornos") +
+  facet_wrap(. ~ security, ncol(returns)) +
+  theme(legend.position = "none")
+```
+
+[brumadinho]: https://g1.globo.com/mg/minas-gerais/noticia/2019/01/25/bombeiros-e-defesa-civil-sao-mobilizados-para-chamada-de-rompimento-de-barragem-em-brumadinho-na-grande-bh.ghtml
+
+Note que nessa função usamos o `plot.engine = "ggplot2"` que cria um objeto do ggplot2.
+A partir desse gráfico podemos fazer as customizações usando a sintaxe do ggplot2.
+Aqui aplicamos o `facet_wrap` para separar os gráficos em linhas e removemos a legenda, uma vez que o nome de cada ativo vem no topo de gráfico.
+Neste gráfico colocamos os retornos apenas de 2019.
+É interessante observar que os eixos y de todos os gráficos têm a mesma escala e que ela vai de +0,1 (aproximadamente 10%) até -0,3 (aproximadamente -30%).
+Podemos observar que a VALE teve uma queda grande no começo de 2019, no primeiro mês do ano.
+Isso é consequência do acidente em Brumadinho, o [rompimento da barreira][brumadinho].
+
+A primeira análise é o cálculo dos retornos acumulados, dado que os retornos são a variação percentual diária do ativo, os retornos acumulados apresentam o *ganho* (ou perda) do ativo no período.
+Para simplificar vamos considerar o investimento de R\$ 1,00 no começo do período e vamos avaliar a evolução deste investimento nestes 10 anos, se no fim tivermos mais de R\$ 1,00 o investimento teve um retorno positivo no período, caso contrário teve perda pois chegou-se ao fim com menos do que tinha no começo do ano.
+A função `chart.CumReturns` apresenta as séries de retornos acumulados para todos os ativos.
+
+```{r}
+{
+  chart.CumReturns(returns, wealth.index = TRUE, main = "Retornos Acumulados", legend.loc = 'topleft')
+  lines(xts(rep(1, nrow(returns)), time(returns)), col = "black", lty = 2)
+}
+```
+
+Aqui usamos também a função `lines` para traçar uma linha pontilhada marcando R\$ 1,00 e por este motivo usamos as chaves `{}` para criar um bloco único onde o resultado é o gráfico.
+Isso é útil para fazer composição de gráficos quando utilizamos o Rmarkdown.
+
+Observando o gráfico, vemos que o 1,00 Real investido em Lojas Renner foi multiplicado por 12, o investimento em Ambev foi multiplicado por 6, enquanto Petrobrás e Vale chegam ao fim do período com menos do que foi colocado inicialmente.
+Considerando o índice IBOVESPA no período, ele chega no fim quase no zero à zero.
+Conhecendo o índice IBOVESPA, temos que Petrobrás e Vale possuem um grande peso no índice, entretanto o resultado no índice foi melhor do que os resultados individuais das empresas.
+Logo, a conclusão natural é que as demais empresas no índice, mesmo com um peso menor na sua composição, conseguiram melhorar o resultado no fim do período.
+
+Observando o histórico realizado, é fácil concluir que o investimento em Lojas Renner e Ambev foi muito melhor do que o investimento em Vale e Petrobrás, entretanto, estas últimas empresas foram grandes responsáveis pelo crescimento do índice nos anos anteriores.
+
+```{r getSymbols-before, message=FALSE, warning=FALSE, cache=TRUE}
+symbols <- c("PETR4.SA", "VALE3.SA")
+
+prices_before <- getSymbols(symbols,
+                     from = "2000-01-01",
+                     to = "2010-01-01",
+                     auto.assign = TRUE) %>%
+  map(~Ad(get(.))) %>%
+  reduce(merge) %>%
+  `colnames<-`(symbols)
+
+returns_before <- Return.calculate(prices_before, method = "log")
+
+{
+  chart.CumReturns(returns_before, wealth.index = TRUE, main = "Retornos Acumulados", legend.loc = 'topleft')
+  lines(xts(rep(1, nrow(returns_before)), time(returns_before)), col = "black", lty = 2)
+}
+
+```
+
+O gráfico acima traz as ações Petrobrás e Vale na década anterior, nota-se que até a crise de 2008 (Crise dos Subprime), a Vale entregava um retorno multiplicado por 10 e a Petrobrás com múltiplo de 6.
+Mesmo após a crise ambas apresentaram forte recuperação.
+Logo, para a década seguinte é razoável considerar e estas ações faziam parte de grande parte das carteiras de investimento.
+
+O ponto que eu quero colocar aqui é, **não há bola de cristal para investimentos**.
+Tem aqui duas ações que foram um sucesso na primeira década do século e foram um total fracasso na década seguinte.
+Isso com certeza aconteceu com diversas outras ações.
+Para o investidor pessoa física, é muito difícil, talvez praticamente impossível, acertar o *timing* de entrada e saída dos investimentos em ações.
+Essa tarefa já é desafiadora para investidores profissionais, que possuem grandes equipes dedicadas ao acompanhamento das empresas e dos mercado, imaginem para investidores pessoa-física apenas com computadores pessoais e acesso ao Google, sem chance!
+
+Vamos voltar para a década de 2010-2019.
+Vamos pegar os quatro ativos, Petrobrás, Vale, Lojas Renner e Ambev e montar uma carteira de investimentos onde todas as ações começam com a mesma participação, 1/4 cada.
+
+```{r}
+weight <- 1/4
+carteira <- weight * returns[,"ABEV3.SA"] + weight * returns[,"LREN3.SA"] + weight * returns[,"PETR4.SA"] + weight * returns[,"VALE3.SA"]
+colnames(carteira) <- "Carteira"
+returns <- merge(returns, carteira)
+```
+
+Aqui montamos os retornos da carteira como uma composição dos retornos dos 4 ativos.
+Vamos agora calcular novamente o gráfico de resultado acumulado para avaliarmos o resultado da carteira.
+
+```{r}
+{
+  chart.CumReturns(returns, wealth.index = TRUE, main = "Retornos Acumulados",
+                   legend.loc = 'topleft',
+                   colorset = c(rep('gray', 5), 'red'))
+  lines(xts(rep(1, nrow(returns)), time(returns)), col = "black", lty = 2)
+}
+```
+
+Vemos que o capital investido na carteira mais que dobrou.
+Isso é consequência da diversificação dos investimento.
+Se tivessemos alocado em apenas um ou dois ativos, ficaríamos a mercê da sorte, ou da capacidade de escolha.
+Dividindo os ovos em diversas cestas mitigamos o rísco de um ativo ir muito pior que os outros.
+Eventualmente todo os ativos podem ir mau e por isso é importante conhecer outros tipos de investimento além de ações, como moedas e renda fixa, por exemplo.
+
+Abaixo segue uma tabela gerada pela função `table.AnnualizedReturns` do [PerformanceAnalytics].
+Nessa tabela são calculados o retorno médio no período anualizado e a medida de risco, desvio padrão anualizado.
+
+```{r}
+table.AnnualizedReturns(returns) %>% formattable::formattable()
+```
+
+Note que o retorno da carteira fica em 11,43% ao ano, nada mau, essa é uma taxa de juros com dois digito e mais que dobrou o capital em 10 anos.
+
+Uma análise interessante na formação da carteira é fazer uma análise da correlação entre os ativos.
+A função `chart.Correlation` do [PerformanceAnalytics] entrega um gráfico de correlação com todos os ativos juntos.
+
+```{r}
+chart.Correlation(returns)
+```
+
+A correlação entre Petrobrás e Vale é de 43%, enquanto a correlação entre Ambev e Lojas Renner é de 30%.
+Com essas correlações, uma carteira interessante poderia ser composta por Lojas Renner, Ambev e Vale, por apresentarem as menores correlações entre si.
+Quanto mais próxima de zero a correlação melhor é para a carteira.
+Isso indica que os retornos dos ativos são independentes entre si, e reduz a probabilidade de que todos caiam juntos, por exemplo.
+
+```{r}
+weight <- 1/3
+carteira <- weight * returns[,"ABEV3.SA"] + weight * returns[,"LREN3.SA"] + weight * returns[,"VALE3.SA"]
+colnames(carteira) <- "Carteira 2"
+returns <- merge(returns, carteira)
+
+{
+  chart.CumReturns(returns, wealth.index = TRUE, main = "Retornos Acumulados",
+                   legend.loc = 'topleft',
+                   colorset = c(rep('gray', 5), 'magenta', 'red'))
+  lines(xts(rep(1, nrow(returns)), time(returns)), col = "black", lty = 2)
+}
+```
+
+Observe que excluindo Petrobrás, por um critério objetivo, a Carteira 2 tem um desempenho duas vezes melhor que o da primeira carteira.
+Diversificação é o último almoço grátis no mercado financeiro.
+É fundamental entender as possibilidades da diversificação nos investimentos e principalmente na construção de uma carteira de investimentos.
+Como pudemos ver, o R oference um conjuto de ferramentas muito interessantes para essa análise.
